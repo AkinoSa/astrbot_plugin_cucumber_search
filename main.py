@@ -37,8 +37,8 @@ class CucumberSearchPlugin(Star):
 
         # 1. 指令配置
         cmd_cfg = self.config.get("command") or {}
-        self.command_name = str(cmd_cfg.get("command_name") or "黄瓜搜图").strip()
-        raw_aliases = str(cmd_cfg.get("command_aliases") or "搜图,找coser,查出处,黄瓜找鸡,睦睦找鸡").strip()
+        self.command_name = str(cmd_cfg.get("command_name") or "睦睦搜图").strip()
+        raw_aliases = str(cmd_cfg.get("command_aliases") or "搜图,找coser,查出处,睦睦找鸡,黄瓜搜图,黄瓜找鸡").strip()
         self.aliases = [a.strip() for a in re.split(r"[,，\s]+", raw_aliases) if a.strip()]
         self.enable_group = bool(cmd_cfg.get("enable_group", True))
         self.enable_private = bool(cmd_cfg.get("enable_private", True))

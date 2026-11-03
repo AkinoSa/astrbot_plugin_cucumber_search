@@ -7,14 +7,14 @@
       "command_name": {
         "description": "触发主指令",
         "type": "string",
-        "default": "黄瓜搜图",
-        "hint": "触发找图的主指令，默认「黄瓜搜图」（前面带不带 / 均可触发）"
+        "default": "睦睦搜图",
+        "hint": "触发找图的主指令，默认「睦睦搜图」（前面带不带 / 均可触发）"
       },
       "command_aliases": {
         "description": "指令别名（英文逗号隔开）",
         "type": "string",
-        "default": "搜图,找coser,查出处,黄瓜找鸡,睦睦找鸡",
-        "hint": "多个别名用英文逗号分隔，如：搜图,找coser,查出处,睦睦找鸡"
+        "default": "搜图,找coser,查出处,睦睦找鸡,黄瓜搜图,黄瓜找鸡",
+        "hint": "多个别名用英文逗号分隔，如：搜图,找coser,查出处,睦睦找鸡,黄瓜搜图"
       },
       "enable_group": {
         "description": "群聊中启用",
