@@ -371,14 +371,14 @@ class CucumberSearchPlugin(Star):
             reply_text = res_data.get("text") or "🎯 未检索到相关出处。"
 
             # 1. 命中账号且配置了表情包
-            if accounts and self.enable_found_image and self.found_image:
+            if accounts and (self.enable_found_image or self.found_image) and self.found_image:
                 if self.found_image.startswith(("http://", "https://")):
                     yield event.image_result(self.found_image)
                 elif os.path.exists(self.found_image):
                     yield event.image_result(self.found_image)
 
             # 2. 未命中且配置了未命中表情包
-            elif not accounts and self.enable_miss_image and self.miss_image:
+            elif not accounts and (self.enable_miss_image or self.miss_image) and self.miss_image:
                 if self.miss_image.startswith(("http://", "https://")):
                     yield event.image_result(self.miss_image)
                 elif os.path.exists(self.miss_image):
