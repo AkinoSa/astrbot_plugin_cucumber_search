@@ -1,0 +1,33 @@
+name: astrbot_plugin_cucumber_search
+display_name: 黄瓜搜图 (Coser/动漫多引擎反查)
+author: AkinoSa
+author_url: https://github.com/AkinoSa
+desc: 给一张图反查 Coser 社媒账号与二次元图源。支持 Google Lens、SauceNAO、trace.moe、IQDB、百度识图多引擎；支持引用搜图；支持自定义表情包、代理与指令配置。
+short_desc: 给一张图反查 Coser 社媒账号与图源出处。
+repo: https://github.com/AkinoSa/astrbot_plugin_cucumber_search
+category: 工具
+tags:
+  - 搜图
+  - 反查
+  - coser
+  - Google Lens
+  - SauceNAO
+  - trace.moe
+help: |
+  【黄瓜搜图使用方法】：
+  1. 引用包含图片的消息，发送指令 `/黄瓜搜图`（或设置的别名：搜图、找coser、查出处）；
+  2. 或者直接发送一张图片，并在附带文本中输入 `/黄瓜搜图`。
+
+  【可配置项（AstrBot 管理后台 -> 插件设置）】：
+  - 自定义触发主指令与别名（无需重启，改完即生效）
+  - 自由开关 Google Lens、SauceNAO、trace.moe、IQDB、百度识图
+  - 自定义网络代理（默认 http://127.0.0.1:7890）
+  - 自定义成功/失败时附带发送的表情包（支持填网络图片 URL 或本地图片路径）
+  - 智能环境探测（支持 Windows、Linux、Docker 及飞牛私有云 FNOS）
+version: 1.0.0
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
+  - discord
+astrbot_version: ">=4.0.0"

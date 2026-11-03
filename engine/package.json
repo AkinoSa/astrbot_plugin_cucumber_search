@@ -1,0 +1,15 @@
+{
+  "name": "cucumber-search",
+  "version": "1.0.0",
+  "description": "Coser与二次元多引擎搜图（Google Lens / SauceNAO / trace.moe / IQDB）",
+  "type": "module",
+  "bin": {
+    "cucumber-search": "bin/cucumber.mjs"
+  },
+  "main": "src/cucumber-search.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {}
+}

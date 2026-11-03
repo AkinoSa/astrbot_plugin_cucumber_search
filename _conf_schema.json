@@ -1,0 +1,150 @@
+{
+  "command": {
+    "description": "指令与触发配置",
+    "type": "object",
+    "hint": "配置触发识图的指令前缀与别名",
+    "items": {
+      "command_name": {
+        "description": "触发主指令",
+        "type": "string",
+        "default": "黄瓜搜图",
+        "hint": "触发找图的主指令，默认「黄瓜搜图」（前面带不带 / 均可触发）"
+      },
+      "command_aliases": {
+        "description": "指令别名（英文逗号隔开）",
+        "type": "string",
+        "default": "搜图,找coser,查出处,黄瓜找鸡",
+        "hint": "多个别名用英文逗号分隔，如：搜图,找coser,查出处"
+      },
+      "enable_group": {
+        "description": "群聊中启用",
+        "type": "bool",
+        "default": true,
+        "hint": "是否在群聊中响应此搜图指令"
+      },
+      "enable_private": {
+        "description": "私聊中启用",
+        "type": "bool",
+        "default": true,
+        "hint": "是否在私聊中响应此搜图指令"
+      },
+      "cooldown_sec": {
+        "description": "用户冷却时间(秒)",
+        "type": "int",
+        "default": 30,
+        "hint": "单用户冷却间隔时间，防止频繁触发刷爆识图接口额度"
+      }
+    }
+  },
+  "search": {
+    "description": "搜图引擎与检索配置",
+    "type": "object",
+    "hint": "选择启用的识图引擎与搜索参数",
+    "items": {
+      "enable_lens": {
+        "description": "启用 Google Lens (最准，推特/微博 Coser 必备)",
+        "type": "bool",
+        "default": true,
+        "hint": "需要代理与无头浏览器（Windows Edge、Linux Chromium 或飞牛浏览器均可）"
+      },
+      "enable_saucenao": {
+        "description": "启用 SauceNAO (动漫插画/Pixiv 出处)",
+        "type": "bool",
+        "default": true,
+        "hint": "直连可用，二次元同人图/插画最准，免费接口有频率限制"
+      },
+      "enable_tracemoe": {
+        "description": "启用 trace.moe (番剧截图溯源)",
+        "type": "bool",
+        "default": true,
+        "hint": "直连可用，专查动画截图对应的番剧、集数与精确时间点"
+      },
+      "enable_iqdb": {
+        "description": "启用 IQDB (动漫壁纸图库)",
+        "type": "bool",
+        "default": false,
+        "hint": "Danbooru / Gelbooru 图库，排队较慢，默认关闭"
+      },
+      "enable_baidu": {
+        "description": "启用 百度识图",
+        "type": "bool",
+        "default": false,
+        "hint": "国内识图引擎，需要浏览器"
+      },
+      "proxy": {
+        "description": "网络代理地址",
+        "type": "string",
+        "default": "http://127.0.0.1:7890",
+        "hint": "用于访问 Google Lens / SauceNAO 等国外服务的 HTTP 代理，留空为直连"
+      },
+      "timeout_sec": {
+        "description": "单引擎超时时间(秒)",
+        "type": "int",
+        "default": 45,
+        "hint": "单个搜图引擎的最大执行时间"
+      },
+      "max_accounts": {
+        "description": "最大展示账号数量",
+        "type": "int",
+        "default": 3,
+        "hint": "回复中最多展示前几个可信社交账号"
+      },
+      "strict_consensus": {
+        "description": "严格名字一致性",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后只展示人名一致的可信账号（防误报）；关闭则列出所有候选账号"
+      }
+    }
+  },
+  "meme": {
+    "description": "表情包回复配置",
+    "type": "object",
+    "hint": "搜图成功或失败时是否附带发送自定义表情包",
+    "items": {
+      "enable_found_image": {
+        "description": "命中时发送表情包",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，若成功查到 Coser 账号或图源，回复时附带一张表情包"
+      },
+      "found_image": {
+        "description": "命中表情包（本地绝对路径或网络URL）",
+        "type": "string",
+        "default": "",
+        "hint": "支持填写本地图片绝对路径，或直接填网络图片链接（如 https://.../found.jpg）"
+      },
+      "enable_miss_image": {
+        "description": "未命中时发送表情包",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，若各引擎均未查到结果，附带发送未命中表情包"
+      },
+      "miss_image": {
+        "description": "未命中表情包（本地绝对路径或网络URL）",
+        "type": "string",
+        "default": "",
+        "hint": "支持填写本地图片绝对路径，或直接填网络图片链接"
+      }
+    }
+  },
+  "env": {
+    "description": "运行环境与路径配置（高级）",
+    "type": "object",
+    "hint": "通常留空即可，插件会自动智能探测本机与飞牛/Linux/Windows 环境",
+    "items": {
+      "node_path": {
+        "description": "Node.js 可执行文件路径",
+        "type": "string",
+        "default": "",
+        "hint": "留空自动探测（自动匹配系统 node 或飞牛 /vol1/@appcenter/nodejs_v22/bin/node）"
+      },
+      "browser_path": {
+        "description": "浏览器可执行文件路径",
+        "type": "string",
+        "default": "",
+        "hint": "留空自动探测（自动匹配 Windows Edge、Chrome、Linux Chromium、飞牛 fygo-browser 等）"
+      }
+    }
+  }
+}
