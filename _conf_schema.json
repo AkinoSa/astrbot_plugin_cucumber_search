@@ -13,8 +13,8 @@
       "command_aliases": {
         "description": "指令别名（英文逗号隔开）",
         "type": "string",
-        "default": "搜图,找coser,查出处,黄瓜找鸡",
-        "hint": "多个别名用英文逗号分隔，如：搜图,找coser,查出处"
+        "default": "搜图,找coser,查出处,黄瓜找鸡,睦睦找鸡",
+        "hint": "多个别名用英文逗号分隔，如：搜图,找coser,查出处,睦睦找鸡"
       },
       "enable_group": {
         "description": "群聊中启用",
@@ -33,6 +33,37 @@
         "type": "int",
         "default": 30,
         "hint": "单用户冷却间隔时间，防止频繁触发刷爆识图接口额度"
+      }
+    }
+  },
+  "interactive": {
+    "description": "交互与回复方式",
+    "type": "object",
+    "hint": "控制提示语、人格润色与上下文记忆",
+    "items": {
+      "enable_start_hint": {
+        "description": "发送「正在搜图」前置提示",
+        "type": "bool",
+        "default": true,
+        "hint": "收到搜图指令后，是否先发一条提示告知用户已开始查图"
+      },
+      "start_hint_text": {
+        "description": "前置提示语内容",
+        "type": "string",
+        "default": "🔍 收到图片，正在调用多引擎反查出处...",
+        "hint": "开始搜图时的提示词"
+      },
+      "enable_persona_reply": {
+        "description": "使用 Bot 人格语气回复结果",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，搜索结果将交由当前会话的 LLM 按角色人设语气重新润色后发出"
+      },
+      "enable_conversation_history": {
+        "description": "搜图结果加入聊天上下文",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后将本次搜图结果写入当前会话记忆，后续问 Bot「刚才那个coser是谁」它能记得"
       }
     }
   },
@@ -105,13 +136,13 @@
       "enable_found_image": {
         "description": "命中时发送表情包",
         "type": "bool",
-        "default": false,
+        "default": true,
         "hint": "开启后，若成功查到 Coser 账号或图源，回复时附带一张表情包"
       },
       "found_image": {
         "description": "命中表情包（本地绝对路径或网络URL）",
         "type": "string",
-        "default": "",
+        "default": "/vol2/1000/meme/success.jpg",
         "hint": "支持填写本地图片绝对路径，或直接填网络图片链接（如 https://.../found.jpg）"
       },
       "enable_miss_image": {
