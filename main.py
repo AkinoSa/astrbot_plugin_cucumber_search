@@ -128,11 +128,11 @@ class CucumberSearchPlugin(Star):
                 return w
         return None
 
-    def _is_trigger_command(self, raw_text: str) -> bool:
-        """检查文本是否匹配主指令或别名"""
+    def _match_trigger_command(self, raw_text: str) -> Optional[str]:
+        """检查文本是否匹配主指令或别名，匹配成功返回具体的触发词"""
         text = raw_text.strip()
         if not text:
-            return False
+            return None
 
         clean_text = re.sub(r"^[/／#!！.。]+", "", text).strip()
         first_token = clean_text.split()[0] if clean_text else ""
@@ -141,8 +141,8 @@ class CucumberSearchPlugin(Star):
         for target in all_cmds:
             t_clean = re.sub(r"^[/／#!！.。]+", "", target).strip()
             if first_token == t_clean or clean_text == t_clean:
-                return True
-        return False
+                return t_clean
+        return None
 
     async def _extract_image_url(self, event: AstrMessageEvent) -> Optional[str]:
         """从当前消息或被引用的消息中提取图片 URL 或路径"""
@@ -251,7 +251,9 @@ class CucumberSearchPlugin(Star):
             logger.error(f"[黄瓜搜图] 下载图片异常: {e}")
             return None
 
-    async def _llm_persona_reply(self, event: AstrMessageEvent, search_result: str) -> Optional[str]:
+    async def _llm_persona_reply(
+        self, event: AstrMessageEvent, search_result: str, triggered_cmd: str = "搜图"
+    ) -> Optional[str]:
         """使用当前会话的模型与人格润色搜图结果"""
         try:
             umo = event.unified_msg_origin
@@ -276,7 +278,7 @@ class CucumberSearchPlugin(Star):
                             persona_prompt = getattr(persona, "system_prompt", "") or getattr(persona, "prompt", "")
 
             user_prompt = (
-                f"【系统信息】：用户发送了一张图片请求搜图/找出处，多引擎反查结果如下：\n"
+                f"【系统信息】：用户发送了一张图片请求搜图/找出处（使用的指令为：{triggered_cmd}），多引擎反查结果如下：\n"
                 f"{search_result}\n\n"
                 f"【任务要求】：请完全代入你当前的人格人设、性格特征和语言风格，把上面的搜图结果告知用户。\n"
                 f"要求：\n"
@@ -297,7 +299,9 @@ class CucumberSearchPlugin(Star):
             logger.warning(f"[黄瓜搜图] 人格包装生成失败，降级使用原生排版: {e}")
         return None
 
-    async def _record_conversation(self, event: AstrMessageEvent, user_text: str, reply_text: str):
+    async def _record_conversation(
+        self, event: AstrMessageEvent, user_text: str, reply_text: str, triggered_cmd: str = "搜图"
+    ):
         """将搜图结果写入当前 LLM 会话上下文，供后续对话参考"""
         try:
             manager = getattr(self.context, "conversation_manager", None)
@@ -310,12 +314,12 @@ class CucumberSearchPlugin(Star):
                 )
             await manager.add_message_pair(
                 conversation_id,
-                {"role": "user", "content": user_text or "[发送了一张图片进行搜图]"},
-                {"role": "assistant", "content": f"[黄瓜搜图结果]\n{reply_text}"},
+                {"role": "user", "content": user_text or f"[发送了一张图片请求{triggered_cmd}]"},
+                {"role": "assistant", "content": f"[{triggered_cmd}结果]\n{reply_text}"},
             )
-            logger.info("[黄瓜搜图] 已将搜图结果记录至 LLM 对话上下文")
+            logger.info(f"[{triggered_cmd}] 已将搜图结果记录至 LLM 对话上下文")
         except Exception as e:
-            logger.warning(f"[黄瓜搜图] 写入会话上下文失败: {e}")
+            logger.warning(f"[{triggered_cmd}] 写入会话上下文失败: {e}")
 
     @filter.event_message_type(EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
@@ -327,7 +331,8 @@ class CucumberSearchPlugin(Star):
             return
 
         text = (event.message_str or "").strip()
-        if not self._is_trigger_command(text):
+        triggered_cmd = self._match_trigger_command(text)
+        if not triggered_cmd:
             return
 
         # 冷却时间检查
@@ -345,7 +350,9 @@ class CucumberSearchPlugin(Star):
         # 提取图片
         image_url = await self._extract_image_url(event)
         if not image_url:
-            await event.send(event.plain_result(f"💡 请【引用一张带有图片的消息】或【发送图片时附带文字】再发送 /{self.command_name}"))
+            await event.send(
+                event.plain_result(f"💡 请【引用一张带有图片的消息】或【发送图片时附带文字】再发送 /{triggered_cmd}")
+            )
             event.stop_event()
             return
 
@@ -359,7 +366,9 @@ class CucumberSearchPlugin(Star):
         # 探测 Node.js 环境
         node_bin = self._detect_node()
         if not node_bin:
-            await event.send(event.plain_result("❌ 未检测到可用的 Node.js (>=20) 环境！请在插件设置中指定 node_path。"))
+            await event.send(
+                event.plain_result("❌ 未检测到可用的 Node.js (>=20) 环境！请在插件设置中指定 node_path。")
+            )
             event.stop_event()
             return
 
@@ -379,7 +388,7 @@ class CucumberSearchPlugin(Star):
                 if browser_bin:
                     engines.append("lens")
                 else:
-                    logger.warning("[黄瓜搜图] 未找到 Chromium/Edge 浏览器，跳过 Google Lens 引擎")
+                    logger.warning(f"[{triggered_cmd}] 未找到 Chromium/Edge 浏览器，跳过 Google Lens 引擎")
             if self.enable_saucenao:
                 engines.append("saucenao")
             if self.enable_tracemoe:
@@ -430,7 +439,7 @@ class CucumberSearchPlugin(Star):
 
             if proc.returncode != 0:
                 err_msg = stderr.decode("utf-8", errors="ignore").strip()
-                logger.error(f"[黄瓜搜图] Node 引擎退出异常 (code {proc.returncode}): {err_msg}")
+                logger.error(f"[{triggered_cmd}] Node 引擎退出异常 (code {proc.returncode}): {err_msg}")
                 await event.send(event.plain_result(f"❌ 搜图服务执行异常：{err_msg[:120] if err_msg else '未知错误'}"))
                 return
 
@@ -442,39 +451,51 @@ class CucumberSearchPlugin(Star):
                 return
 
             accounts = res_data.get("accounts") or []
-            raw_reply_text = res_data.get("text") or "🎯 未检索到相关出处。"
+            raw_reply_text = res_data.get("text") or f"🎯 未检索到相关出处。"
+
+            # 动态替换标题为当前触发的指令名称（如：睦睦找鸡 -> 🎯 **睦睦找鸡结果**）
+            cmd_title = triggered_cmd[:-2] if triggered_cmd.endswith("结果") and len(triggered_cmd) > 2 else triggered_cmd
+            raw_reply_text = re.sub(r"🎯 \*\*[^\*]+结果\*\*", f"🎯 **{cmd_title}结果**", raw_reply_text)
+            raw_reply_text = raw_reply_text.replace("黄瓜搜图结果", f"{cmd_title}结果")
 
             # 1. 人格回复处理
             final_reply_text = raw_reply_text
             if self.enable_persona_reply:
-                persona_text = await self._llm_persona_reply(event, raw_reply_text)
+                persona_text = await self._llm_persona_reply(event, raw_reply_text, triggered_cmd)
                 if persona_text:
                     final_reply_text = persona_text
 
-            # 2. 表情包发送（命中或未命中）
+            # 2. 合并单条消息发送：表情包（在前）+ 搜图结果文本（在后）
+            msg_chain: list[Any] = []
+
+            # 命中且配置了表情包
             if accounts and (self.enable_found_image or self.found_image) and self.found_image:
                 if self.found_image.startswith(("http://", "https://")):
-                    await event.send(event.image_result(self.found_image))
+                    msg_chain.append(CompImage.fromURL(self.found_image))
                 elif os.path.exists(self.found_image):
-                    await event.send(event.image_result(self.found_image))
+                    msg_chain.append(CompImage.fromFileSystem(self.found_image))
 
+            # 未命中且配置了未命中表情包
             elif not accounts and (self.enable_miss_image or self.miss_image) and self.miss_image:
                 if self.miss_image.startswith(("http://", "https://")):
-                    await event.send(event.image_result(self.miss_image))
+                    msg_chain.append(CompImage.fromURL(self.miss_image))
                 elif os.path.exists(self.miss_image):
-                    await event.send(event.image_result(self.miss_image))
+                    msg_chain.append(CompImage.fromFileSystem(self.miss_image))
 
-            # 3. 发送搜图文本结果
-            await event.send(event.plain_result(final_reply_text))
+            # 拼接文本结果
+            msg_chain.append(Plain(final_reply_text))
 
-            # 4. 写入会话上下文（供后续追问）
+            # 一条消息合并发送（图片 + 文本）
+            await event.send(event.chain_result(msg_chain))
+
+            # 3. 写入会话上下文（供后续追问）
             if self.enable_conversation_history:
-                await self._record_conversation(event, text, final_reply_text)
+                await self._record_conversation(event, text, final_reply_text, triggered_cmd)
 
         except asyncio.TimeoutError:
             await event.send(event.plain_result("⏱️ 搜图请求超时，可能是代理未连接或目标图库正在维护。"))
         except Exception as e:
-            logger.error(f"[黄瓜搜图] 运行异常: {e}", exc_info=True)
+            logger.error(f"[{triggered_cmd}] 运行异常: {e}", exc_info=True)
             await event.send(event.plain_result(f"❌ 搜图处理失败: {e}"))
         finally:
             if temp_img_path and os.path.exists(temp_img_path) and "cucumber_search_" in temp_img_path:
