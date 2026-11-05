@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import Image as CompImage, Plain
+from astrbot.api.message_components import Image as CompImage, Plain, Reply
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.filter.event_message_type import EventMessageType
 
@@ -71,6 +71,7 @@ class CucumberSearchPlugin(Star):
         self.found_image = str(meme_cfg.get("found_image") or "").strip()
         self.enable_miss_image = bool(meme_cfg.get("enable_miss_image", False))
         self.miss_image = str(meme_cfg.get("miss_image") or "").strip()
+        self.meme_max_size = max(0, int(meme_cfg.get("meme_max_size", 240) or 0))
 
         # 5. 环境配置
         env_cfg = self.config.get("env") or {}
@@ -155,10 +156,16 @@ class CucumberSearchPlugin(Star):
                 if url:
                     return str(url)
 
-        # 2. 检查是否有引用消息（Reply）
+        # 2. 检查是否有引用消息（Reply），优先从 AstrBot 已经解析好的 Reply.chain 中极速提取（0 延迟）
         reply_id = None
         for comp in message_chain:
-            if comp.__class__.__name__ == "Reply" or hasattr(comp, "id"):
+            if isinstance(comp, Reply) or comp.__class__.__name__ == "Reply":
+                reply_chain = getattr(comp, "chain", []) or []
+                for sub_comp in reply_chain:
+                    if isinstance(sub_comp, CompImage) or sub_comp.__class__.__name__ == "Image":
+                        url = getattr(sub_comp, "url", None) or getattr(sub_comp, "file", None)
+                        if url:
+                            return str(url)
                 c_id = getattr(comp, "id", None)
                 if c_id:
                     reply_id = c_id
@@ -166,13 +173,20 @@ class CucumberSearchPlugin(Star):
 
         if not reply_id:
             reply_obj = getattr(event.message_obj, "reply", None)
-            if reply_obj and hasattr(reply_obj, "id"):
-                reply_id = reply_obj.id
+            if reply_obj:
+                reply_chain = getattr(reply_obj, "chain", []) or []
+                for sub_comp in reply_chain:
+                    if isinstance(sub_comp, CompImage) or sub_comp.__class__.__name__ == "Image":
+                        url = getattr(sub_comp, "url", None) or getattr(sub_comp, "file", None)
+                        if url:
+                            return str(url)
+                if hasattr(reply_obj, "id"):
+                    reply_id = reply_obj.id
 
         if not reply_id:
             return None
 
-        # 3. 调用 bot API 拉取被引用的历史消息
+        # 3. 兜底路径：若 chain 为空，再调用 bot API (get_msg) 向 NapCat/OneBot 拉取
         bot = getattr(event, "bot", None)
         if not bot:
             return None
@@ -212,7 +226,7 @@ class CucumberSearchPlugin(Star):
                     return m2.group(1)
 
         except Exception as e:
-            logger.warning(f"[黄瓜搜图] 尝试拉取被引用消息 ({reply_id}) 失败: {e}")
+            logger.warning(f"[{self.command_name}] 尝试拉取被引用消息 ({reply_id}) 失败: {e}")
 
         return None
 
@@ -248,8 +262,58 @@ class CucumberSearchPlugin(Star):
             tmp_file.close()
             return tmp_file.name
         except Exception as e:
-            logger.error(f"[黄瓜搜图] 下载图片异常: {e}")
+            logger.error(f"[{self.command_name}] 下载图片异常: {e}")
             return None
+
+    async def _prepare_meme_component(self, path_or_url: str) -> Optional[Any]:
+        """根据配置处理表情包：支持等比例缩放，并返回 CompImage 组件"""
+        if not path_or_url:
+            return None
+
+        local_path = None
+        if path_or_url.startswith(("http://", "https://")):
+            # 如果不缩放，直接使用网络 URL 发送
+            if self.meme_max_size <= 0:
+                return CompImage.fromURL(path_or_url)
+            # 若配置了缩放，先下载到本地临时文件进行处理
+            local_path = await self._download_image_to_temp(path_or_url)
+        elif os.path.exists(path_or_url):
+            local_path = path_or_url
+
+        if not local_path or not os.path.exists(local_path):
+            return None
+
+        # 不需要缩放
+        if self.meme_max_size <= 0:
+            return CompImage.fromFileSystem(local_path)
+
+        # 执行 PIL 高质量等比例缩放
+        try:
+            from PIL import Image as PILImage
+
+            with PILImage.open(local_path) as im:
+                w, h = im.size
+                if max(w, h) <= self.meme_max_size:
+                    return CompImage.fromFileSystem(local_path)
+
+                cache_dir = PLUGIN_DIR / "temp_meme"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                mtime = int(os.path.getmtime(local_path))
+                file_hash = abs(hash(f"{local_path}:{mtime}:{self.meme_max_size}"))
+                ext = Path(local_path).suffix or ".jpg"
+                scaled_path = cache_dir / f"meme_{file_hash}_{self.meme_max_size}{ext}"
+
+                if not scaled_path.exists():
+                    im_copy = im.copy()
+                    im_copy.thumbnail((self.meme_max_size, self.meme_max_size), PILImage.Resampling.LANCZOS)
+                    if ext.lower() in [".jpg", ".jpeg"] and im_copy.mode in ("RGBA", "P"):
+                        im_copy = im_copy.convert("RGB")
+                    im_copy.save(str(scaled_path), quality=92)
+
+                return CompImage.fromFileSystem(str(scaled_path))
+        except Exception as e:
+            logger.warning(f"[{self.command_name}] 表情包缩放处理失败，回退使用原图: {e}")
+            return CompImage.fromFileSystem(local_path)
 
     async def _llm_persona_reply(
         self, event: AstrMessageEvent, search_result: str, triggered_cmd: str = "搜图"
@@ -321,7 +385,7 @@ class CucumberSearchPlugin(Star):
         except Exception as e:
             logger.warning(f"[{triggered_cmd}] 写入会话上下文失败: {e}")
 
-    @filter.event_message_type(EventMessageType.ALL)
+    @filter.event_message_type(EventMessageType.ALL, priority=1000)
     async def on_message(self, event: AstrMessageEvent):
         """统一监听消息并处理指令"""
         is_group = bool(event.get_group_id())
@@ -468,19 +532,17 @@ class CucumberSearchPlugin(Star):
             # 2. 合并单条消息发送：表情包（在前）+ 搜图结果文本（在后）
             msg_chain: list[Any] = []
 
-            # 命中且配置了表情包
+            # 命中且配置了表情包（支持等比例缩放防霸屏）
             if accounts and (self.enable_found_image or self.found_image) and self.found_image:
-                if self.found_image.startswith(("http://", "https://")):
-                    msg_chain.append(CompImage.fromURL(self.found_image))
-                elif os.path.exists(self.found_image):
-                    msg_chain.append(CompImage.fromFileSystem(self.found_image))
+                meme_comp = await self._prepare_meme_component(self.found_image)
+                if meme_comp:
+                    msg_chain.append(meme_comp)
 
-            # 未命中且配置了未命中表情包
+            # 未命中且配置了未命中表情包（支持等比例缩放防霸屏）
             elif not accounts and (self.enable_miss_image or self.miss_image) and self.miss_image:
-                if self.miss_image.startswith(("http://", "https://")):
-                    msg_chain.append(CompImage.fromURL(self.miss_image))
-                elif os.path.exists(self.miss_image):
-                    msg_chain.append(CompImage.fromFileSystem(self.miss_image))
+                meme_comp = await self._prepare_meme_component(self.miss_image)
+                if meme_comp:
+                    msg_chain.append(meme_comp)
 
             # 拼接文本结果
             msg_chain.append(Plain(final_reply_text))
