@@ -24,7 +24,7 @@ help: |
   - 自定义网络代理（默认 http://127.0.0.1:7890）
   - 自定义成功/失败时附带发送的表情包（支持填网络图片 URL 或本地图片路径）
   - 智能环境探测（支持 Windows、Linux、Docker 及飞牛私有云 FNOS）
-version: 1.0.0
+version: 1.0.1
 support_platforms:
   - aiocqhttp
   - qq_official

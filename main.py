@@ -26,7 +26,7 @@ CUCUMBER_MJS = ENGINE_DIR / "bin" / "cucumber.mjs"
     "astrbot_plugin_cucumber_search",
     "AkinoSa",
     "黄瓜搜图：多引擎反查 Coser 社媒账号与二次元图源（Google Lens / SauceNAO / trace.moe / IQDB）",
-    "1.0.0",
+    "1.0.1",
     "https://github.com/AkinoSa/astrbot_plugin_cucumber_search",
 )
 class CucumberSearchPlugin(Star):
@@ -479,6 +479,8 @@ class CucumberSearchPlugin(Star):
             ]
             if self.proxy:
                 cmd.extend(["--proxy", self.proxy])
+            if hasattr(self, "profile_dir") and self.profile_dir:
+                cmd.extend(["--profile", str(self.profile_dir)])
             if browser_bin:
                 cmd.extend(["--browser", browser_bin])
             if not self.strict_consensus:

@@ -361,17 +361,28 @@ let browserProxyUrl = ''; // 这次任务要不要让浏览器单独走代理（
 export function setBrowserProxy(url) { browserProxyUrl = String(url ?? ''); }
 export function currentBrowserProxy() { return browserProxyUrl; }
 
+let browserCustomProfileDir = '';
+export function setBrowserProfileDir(dir) { browserCustomProfileDir = String(dir ?? ''); }
+export function currentBrowserProfileDir() { return browserCustomProfileDir; }
+
+function resolveProfileDir(override) {
+  if (override) return override;
+  if (browserCustomProfileDir) return browserCustomProfileDir;
+  return path.join(os.tmpdir(), 'cucumber-browser-profile');
+}
+
 async function ensureBrowser(options = {}) {
   // 代理通道是启动参数（--proxy-server），起来之后改不了：换了通道只能重开浏览器。
   const wantProxy = String(options.proxy ?? browserProxyUrl ?? '');
+  const wantProfile = resolveProfileDir(options.profileDir);
   if (browserState) {
-    if (String(browserState.proxy ?? '') === wantProxy) return browserState;
+    if (String(browserState.proxy ?? '') === wantProxy && String(browserState.userDataDir ?? '') === wantProfile) return browserState;
     await closeBrowser();
   }
   if (!browserStarting) {
     browserStarting = (async () => {
       try {
-        return await startBrowser({ ...options, proxy: wantProxy, profileDir: BROWSER_PROFILE_DIR });
+        return await startBrowser({ ...options, proxy: wantProxy, profileDir: wantProfile });
       } catch {
         // 固定 profile 被占用/损坏时就退回临时目录：宁可丢 cookie，也不能让整条命令失败
         return await startBrowser({ ...options, proxy: wantProxy, profileDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cucumber-browser-')) });
@@ -1145,9 +1156,10 @@ async function browserEngineSearch(engine, bytes, mimeType, { timeoutMs, onLog, 
  * 反查一张图。引擎选择由调用方从 state/cucumber-engines.json 读出后传进来。
  * 单个引擎失败不影响其它引擎；全失败返回 failures 说明原因。
  */
-export async function reverseSearch(bytes, mimeType, { engines, timeoutMs = 25000, onLog, publicUrl, browserExe, tempDir, proxy = '' } = {}) {
+export async function reverseSearch(bytes, mimeType, { engines, timeoutMs = 25000, onLog, publicUrl, browserExe, tempDir, proxy = '', profileDir = '' } = {}) {
   // 浏览器是单例、代理是启动参数：本次要走的通道先摆好（空串 = 直连）
   setBrowserProxy(proxy);
+  if (profileDir) setBrowserProfileDir(profileDir);
   const list = (Array.isArray(engines) && engines.length ? engines : ['saucenao'])
     .filter((id) => ENGINE_IDS.includes(id));
   const candidates = [];
@@ -1159,7 +1171,7 @@ export async function reverseSearch(bytes, mimeType, { engines, timeoutMs = 2500
     if (engine === 'iqdb') return iqdbSearch(bytes, mimeType, { timeoutMs, onLog });
     if (engine === 'tracemoe') return tracemoeSearch(bytes, mimeType, { timeoutMs, onLog });
     if (engine === 'lens') {
-      return googleLensSearch(bytes, mimeType, { timeoutMs: Math.max(timeoutMs, 30000), exe: browserExe, tempDir });
+      return googleLensSearch(bytes, mimeType, { timeoutMs: Math.max(timeoutMs, 30000), exe: browserExe, tempDir, profileDir });
     }
     if (engine === 'baidu') {
       const dir = tempDir || os.tmpdir();

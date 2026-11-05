@@ -62,7 +62,7 @@ const USAGE = `黄瓜搜图 v1.0.0
 `;
 
 function parseArgs(argv) {
-  const out = { image: '', engines: null, max: 0, timeout: 0, proxy: null, browser: '', json: false, strict: true, config: '', check: false };
+  const out = { image: '', engines: null, max: 0, timeout: 0, proxy: null, browser: '', profile: '', json: false, strict: true, config: '', check: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '-h' || a === '--help') return { help: true };
@@ -74,6 +74,7 @@ function parseArgs(argv) {
     else if (a === '--timeout') out.timeout = Number(argv[++i]) || 0;
     else if (a === '--proxy') out.proxy = String(argv[++i] ?? '');
     else if (a === '--browser') out.browser = String(argv[++i] ?? '');
+    else if (a === '--profile') out.profile = String(argv[++i] ?? '');
     else if (a === '--config') out.config = String(argv[++i] ?? '');
     else if (a.startsWith('-')) throw new Error(`不认识的参数：${a}`);
     else if (!out.image) out.image = a;
@@ -98,6 +99,7 @@ function loadConfig(argv) {
   if (argv.timeout) cfg.timeoutMs = argv.timeout * 1000;
   if (argv.proxy !== null) cfg.proxy = argv.proxy;
   if (argv.browser) cfg.browserExe = argv.browser;
+  if (argv.profile) cfg.profileDir = argv.profile;
   return cfg;
 }
 
@@ -159,6 +161,7 @@ async function main() {
     timeoutMs: cfg.timeoutMs,
     proxy: cfg.proxy || '',
     browserExe: cfg.browserExe || '',
+    profileDir: cfg.profileDir || '',
     onLog: verb ? (line) => console.log(`  ${line}`) : null
   });
 

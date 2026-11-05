@@ -1,6 +1,6 @@
 {
   "name": "cucumber-search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Coser与二次元多引擎搜图（Google Lens / SauceNAO / trace.moe / IQDB）",
   "type": "module",
   "bin": {
