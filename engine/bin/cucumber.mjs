@@ -11,6 +11,7 @@ import {
   extractAccounts,
   formatReply,
   engineLabels,
+  closeBrowser,
   ENGINE_IDS
 } from '../src/cucumber-search.js';
 import { safeFetchBuffer } from '../src/safe-fetch.js';
@@ -30,7 +31,7 @@ const DEFAULTS = {
   browserExe: ''
 };
 
-const USAGE = `黄瓜搜图 v1.0.0
+const USAGE = `黄瓜搜图 v1.0.2
 
 用法：
   node bin/cucumber.mjs <图片文件|网址>            查账号（输出给人看的话术）
@@ -163,7 +164,7 @@ async function main() {
     browserExe: cfg.browserExe || '',
     profileDir: cfg.profileDir || '',
     onLog: verb ? (line) => console.log(`  ${line}`) : null
-  });
+  }).finally(() => closeBrowser());
 
   const accounts = extractAccounts(result.candidates, { max: cfg.maxAccounts, strictNames: argv.strict });
   const text = formatReply({
@@ -196,9 +197,20 @@ async function main() {
   return 0;
 }
 
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.once(sig, async () => {
+    try { await closeBrowser(); } catch {}
+    process.exit(sig === 'SIGINT' ? 130 : 143);
+  });
+}
+
 main().then(
-  (code) => process.exit(code),
-  (error) => {
+  async (code) => {
+    try { await closeBrowser(); } catch {}
+    process.exit(code);
+  },
+  async (error) => {
+    try { await closeBrowser(); } catch {}
     console.error(`出错了：${error?.message ?? error}`);
     process.exit(1);
   }

@@ -16,7 +16,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { safeFetch, validateFetchUrl } from './safe-fetch.js';
 import { loadSearchConfig, deepseekSearch } from './web-search.js';
 
@@ -270,9 +270,40 @@ async function waitForFile(file, timeoutMs) {
   throw new Error('浏览器没起来（等不到 DevToolsActivePort）');
 }
 
-async function startBrowser({ timeoutMs = 25000, exe, headed = false, profileDir = '', proxy = '' } = {}) {
+function _killBrowserProcSync(proc) {
+  const pid = Number(proc?.pid) || 0;
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } catch {}
+  } else {
+    // POSIX: 启动时开启了 detached: true，Chromium 及其全部子进程在同一独立进程组 (-pid)
+    try { process.kill(-pid, 'SIGTERM'); } catch {}
+    try { process.kill(-pid, 'SIGKILL'); } catch {}
+  }
+  try { proc.kill('SIGKILL'); } catch {}
+}
+
+let _browserExitHookRegistered = false;
+function _ensureBrowserExitHook() {
+  if (_browserExitHookRegistered) return;
+  _browserExitHookRegistered = true;
+  process.once('exit', () => {
+    const state = browserState;
+    browserState = null;
+    if (!state) return;
+    _killBrowserProcSync(state.proc);
+    if (state.isTempProfile && state.userDataDir) {
+      try { fs.rmSync(state.userDataDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+}
+
+async function startBrowser({ timeoutMs = 25000, exe, headed = false, profileDir = '', proxy = '', isTempProfile = false } = {}) {
   const exePath = resolveBrowserExe(exe);
   if (!exePath) throw new Error('找不到 Edge/Chrome 可执行文件');
+  const tempProfile = Boolean(isTempProfile || !profileDir);
   const userDataDir = profileDir || fs.mkdtempSync(path.join(os.tmpdir(), 'cucumber-browser-'));
   try { fs.mkdirSync(userDataDir, { recursive: true }); } catch {}
   // 上一次留下的 DevToolsActivePort 是过期值，留着会连到死端口
@@ -295,66 +326,84 @@ async function startBrowser({ timeoutMs = 25000, exe, headed = false, profileDir
     `--user-data-dir=${userDataDir}`,
     'about:blank'
   ];
-  const proc = spawn(exePath, args, { stdio: 'ignore', windowsHide: true });
-  const portFile = path.join(userDataDir, 'DevToolsActivePort');
-  const raw = await waitForFile(portFile, timeoutMs);
-  const port = Number(String(raw).split(/\r?\n/)[0]);
-  if (!Number.isFinite(port) || port <= 0) throw new Error('DevToolsActivePort 内容异常');
-
-  // 拿一个 page target 的 ws 地址
-  const deadline = Date.now() + timeoutMs;
-  let target = null;
-  while (Date.now() < deadline && !target) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
-      const list = await response.json();
-      target = (Array.isArray(list) ? list : []).find((t) => t.type === 'page' && t.webSocketDebuggerUrl) ?? null;
-    } catch {}
-    if (!target) await sleep(150);
-  }
-  if (!target) throw new Error('浏览器没有可用的 page target');
-
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  const pending = new Map();
-  let nextId = 1;
-  const opened = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('CDP 连接超时')), timeoutMs);
-    ws.addEventListener('open', () => { clearTimeout(timer); resolve(); });
-    ws.addEventListener('error', (event) => { clearTimeout(timer); reject(new Error('CDP 连接失败')); });
+  _ensureBrowserExitHook();
+  const proc = spawn(exePath, args, {
+    stdio: 'ignore',
+    windowsHide: true,
+    detached: process.platform !== 'win32'
   });
-  ws.addEventListener('message', (event) => {
-    let msg;
-    try { msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)); } catch { return; }
-    if (!msg?.id) return;
-    const entry = pending.get(msg.id);
-    if (!entry) return;
-    pending.delete(msg.id);
-    if (msg.error) entry.reject(new Error(msg.error.message || 'CDP 错误'));
-    else entry.resolve(msg.result);
-  });
-  await opened;
+  let ws = null;
+  try {
+    const portFile = path.join(userDataDir, 'DevToolsActivePort');
+    const raw = await waitForFile(portFile, timeoutMs);
+    const port = Number(String(raw).split(/\r?\n/)[0]);
+    if (!Number.isFinite(port) || port <= 0) throw new Error('DevToolsActivePort 内容异常');
 
-  browserState = {
-    proc, userDataDir, port, ws, pending, proxy,
-    send(method, params = {}) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        // 页面正在跳转 / 目标进程卡死时，CDP 可能永远不回 —— 没有这个超时，
-        // 一条 evaluate 就能把整个任务挂住十几分钟（真实踩过）。
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`CDP 超时：${method}`));
-        }, 25000);
-        pending.set(id, {
-          resolve: (value) => { clearTimeout(timer); resolve(value); },
-          reject: (error) => { clearTimeout(timer); reject(error); }
-        });
-        try { ws.send(JSON.stringify({ id, method, params })); }
-        catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
-      });
+    // 拿一个 page target 的 ws 地址
+    const deadline = Date.now() + timeoutMs;
+    let target = null;
+    while (Date.now() < deadline && !target) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+        const list = await response.json();
+        target = (Array.isArray(list) ? list : []).find((t) => t.type === 'page' && t.webSocketDebuggerUrl) ?? null;
+      } catch {}
+      if (!target) await sleep(150);
     }
-  };
-  return browserState;
+    if (!target) throw new Error('浏览器没有可用的 page target');
+
+    ws = new WebSocket(target.webSocketDebuggerUrl);
+    const pending = new Map();
+    let nextId = 1;
+    const opened = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('CDP 连接超时')), timeoutMs);
+      ws.addEventListener('open', () => { clearTimeout(timer); resolve(); });
+      ws.addEventListener('error', (event) => { clearTimeout(timer); reject(new Error('CDP 连接失败')); });
+    });
+    ws.addEventListener('message', (event) => {
+      let msg;
+      try { msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)); } catch { return; }
+      if (!msg?.id) return;
+      const entry = pending.get(msg.id);
+      if (!entry) return;
+      pending.delete(msg.id);
+      if (msg.error) entry.reject(new Error(msg.error.message || 'CDP 错误'));
+      else entry.resolve(msg.result);
+    });
+    await opened;
+
+    browserState = {
+      proc, userDataDir, isTempProfile: tempProfile, port, ws, pending, proxy,
+      send(method, params = {}) {
+        const id = nextId++;
+        return new Promise((resolve, reject) => {
+          // 页面正在跳转 / 目标进程卡死时，CDP 可能永远不回 —— 没有这个超时，
+          // 一条 evaluate 就能把整个任务挂住十几分钟（真实踩过）。
+          const timer = setTimeout(() => {
+            pending.delete(id);
+            reject(new Error(`CDP 超时：${method}`));
+          }, 25000);
+          pending.set(id, {
+            resolve: (value) => { clearTimeout(timer); resolve(value); },
+            reject: (error) => { clearTimeout(timer); reject(error); }
+          });
+          try { ws.send(JSON.stringify({ id, method, params })); }
+          catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
+        });
+      }
+    };
+    proc.once('exit', () => {
+      if (browserState?.proc === proc) browserState = null;
+    });
+    return browserState;
+  } catch (error) {
+    try { ws?.close(); } catch {}
+    _killBrowserProcSync(proc);
+    if (tempProfile) {
+      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+    }
+    throw error;
+  }
 }
 
 let browserProxyUrl = ''; // 这次任务要不要让浏览器单独走代理（--proxy-server）
@@ -382,10 +431,10 @@ async function ensureBrowser(options = {}) {
   if (!browserStarting) {
     browserStarting = (async () => {
       try {
-        return await startBrowser({ ...options, proxy: wantProxy, profileDir: wantProfile });
+        return await startBrowser({ ...options, proxy: wantProxy, profileDir: wantProfile, isTempProfile: false });
       } catch {
         // 固定 profile 被占用/损坏时就退回临时目录：宁可丢 cookie，也不能让整条命令失败
-        return await startBrowser({ ...options, proxy: wantProxy, profileDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cucumber-browser-')) });
+        return await startBrowser({ ...options, proxy: wantProxy, profileDir: '', isTempProfile: true });
       }
     })().finally(() => { browserStarting = null; });
   }
@@ -396,13 +445,18 @@ export async function closeBrowser() {
   const state = browserState;
   browserState = null;
   if (!state) return;
-  try { state.ws.close(); } catch {}
-  // Edge 会派生一堆子进程，只 kill 主进程会留下占着 profile 的孤儿
   try {
-    const { spawnSync } = await import('node:child_process');
-    spawnSync('taskkill', ['/PID', String(state.proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    await Promise.race([
+      state.send('Browser.close').catch(() => {}),
+      sleep(600)
+    ]);
   } catch {}
-  try { state.proc.kill(); } catch {}
+  try { state.ws.close(); } catch {}
+  await sleep(100);
+  _killBrowserProcSync(state.proc);
+  if (state.isTempProfile && state.userDataDir) {
+    try { fs.rmSync(state.userDataDir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 export function browserRunning() {

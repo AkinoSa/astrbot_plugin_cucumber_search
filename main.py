@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -26,7 +27,7 @@ CUCUMBER_MJS = ENGINE_DIR / "bin" / "cucumber.mjs"
     "astrbot_plugin_cucumber_search",
     "AkinoSa",
     "黄瓜搜图：多引擎反查 Coser 社媒账号与二次元图源（Google Lens / SauceNAO / trace.moe / IQDB）",
-    "1.0.1",
+    "1.0.2",
     "https://github.com/AkinoSa/astrbot_plugin_cucumber_search",
 )
 class CucumberSearchPlugin(Star):
@@ -80,6 +81,22 @@ class CucumberSearchPlugin(Star):
 
         # 用户冷却记录：{user_key: timestamp}
         self._user_cooldown: Dict[str, float] = {}
+
+    @staticmethod
+    def _kill_process_tree(proc: asyncio.subprocess.Process) -> None:
+        """强制清理 Node 引擎及其拉起的 Chromium 子进程树，防止产生孤儿进程"""
+        if proc.returncode is not None:
+            return
+        if os.name != "nt":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+                return
+            except Exception:
+                pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
     def _detect_node(self) -> Optional[str]:
         """探测可用的 Node.js (>=20) 路径"""
@@ -498,10 +515,19 @@ class CucumberSearchPlugin(Star):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=(os.name != "nt"),
             )
 
             total_wait = max(60, self.timeout_sec * len(engines) + 20)
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=total_wait)
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=total_wait)
+            finally:
+                if proc.returncode is None:
+                    self._kill_process_tree(proc)
+                    try:
+                        await proc.wait()
+                    except Exception:
+                        pass
 
             if proc.returncode != 0:
                 err_msg = stderr.decode("utf-8", errors="ignore").strip()
